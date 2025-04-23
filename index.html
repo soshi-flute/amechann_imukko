@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title><4月23日版>騒音警告_全画面波形グラフ付き</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      width: 100%;
+      overflow: hidden;
+      background: #fafafa;
+    }
+    #waveCanvas {
+      display: block;
+      position: fixed;
+      top: 0; left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: #fafafa;
+    }
+    #ui {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      z-index: 10;
+      background: rgba(255,255,255,0.8);
+      padding: 10px 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      font-size: 1.2em;
+    }
+    #startBtn {
+      font-size: 1em;
+      padding: 6px 16px;
+      margin-right: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <button id="startBtn" onclick="start()">スタート</button>
+    <span id="volumeDisplay">音量: 0</span>
+  </div>
+  <canvas id="waveCanvas"></canvas>
+  <script>
+    let audioContext;
+    let analyser, dataArray;
+    const canvas = document.getElementById('waveCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // 画面サイズに合わせてcanvasをリサイズ
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    function start() {
+      navigator.mediaDevices.getUserMedia({ audio: true })
+        .then(stream => {
+          audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          const mic = audioContext.createMediaStreamSource(stream);
+          analyser = audioContext.createAnalyser();
+          analyser.fftSize = 2048; // 波形の細かさ
+          dataArray = new Uint8Array(analyser.fftSize);
+          mic.connect(analyser);
+
+          checkNoise();
+        })
+        .catch(e => {
+          alert('マイクの利用が許可されませんでした');
+        });
+    }
+
+    function checkNoise() {
+      analyser.getByteTimeDomainData(dataArray);
+      // 音量（振幅の平均値）を計算
+      let sum = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        sum += Math.abs(dataArray[i] - 128);
+      }
+      const volume = sum / dataArray.length;
+      document.getElementById('volumeDisplay').textContent = '音量: ' + volume.toFixed(2);
+
+      // --- 波形グラフの描画 ---
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.beginPath();
+      for (let x = 0; x < canvas.width; x++) {
+        const dataIndex = Math.floor(x * dataArray.length / canvas.width);
+        const v = dataArray[dataIndex] / 255;
+        const y = v * canvas.height;
+        if (x === 0) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
+      }
+      ctx.strokeStyle = '#0077cc';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // --- 警告音 ---
+      if (volume > 20) { // しきい値は環境に合わせて調整
+        const beep = audioContext.createOscillator();
+        beep.type = 'square';
+        beep.frequency.value = 1046.502;
+        beep.connect(audioContext.destination);
+        beep.start();
+        beep.stop(audioContext.currentTime + 0.2);
+      }
+
+      requestAnimationFrame(checkNoise);
+    }
+  </script>
+</body>
+</html>
