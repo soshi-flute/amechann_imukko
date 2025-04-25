@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title><4月23日版>騒音警告_全画面波形グラフ付き</title>
+  <title>全画面波形グラフ騒音警告（最大値表示付き）</title>
   <style>
     html, body {
       margin: 0;
@@ -36,19 +36,45 @@
       padding: 6px 16px;
       margin-right: 10px;
     }
+    #alertMessage {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 2.5em;
+      color: #fff;
+      background: rgba(220, 0, 0, 0.85);
+      padding: 30px 50px;
+      border-radius: 20px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.2);
+      z-index: 100;
+      text-align: center;
+      display: none;
+      pointer-events: none;
+      user-select: none;
+    }
+    #maxVolumeDisplay {
+      margin-left: 25px;
+      color: #c00;
+      font-weight: bold;
+    }
   </style>
 </head>
 <body>
   <div id="ui">
     <button id="startBtn" onclick="start()">スタート</button>
     <span id="volumeDisplay">音量: 0</span>
+    <span id="maxVolumeDisplay">最大音量: 0</span>
   </div>
+  <div id="alertMessage"></div>
   <canvas id="waveCanvas"></canvas>
   <script>
     let audioContext;
     let analyser, dataArray;
     const canvas = document.getElementById('waveCanvas');
     const ctx = canvas.getContext('2d');
+    let alertTimeout = null; // 10秒表示用タイマー
+    let maxVolume = 0; // 最大音量を記録
 
     // 画面サイズに合わせてcanvasをリサイズ
     function resizeCanvas() {
@@ -64,7 +90,7 @@
           audioContext = new (window.AudioContext || window.webkitAudioContext)();
           const mic = audioContext.createMediaStreamSource(stream);
           analyser = audioContext.createAnalyser();
-          analyser.fftSize = 2048; // 波形の細かさ
+          analyser.fftSize = 2048;
           dataArray = new Uint8Array(analyser.fftSize);
           mic.connect(analyser);
 
@@ -75,15 +101,42 @@
         });
     }
 
+    function showAlertMessage(msg) {
+      const alertDiv = document.getElementById('alertMessage');
+      alertDiv.textContent = msg;
+      alertDiv.style.display = 'block';
+      if (alertTimeout) clearTimeout(alertTimeout);
+      alertTimeout = setTimeout(() => {
+        alertDiv.style.display = 'none';
+      }, 10000); // 10秒後に消す
+    }
+
+    function playWarningSound() {
+      if (audioContext.state === 'suspended') {
+        audioContext.resume();
+      }
+      const beep = audioContext.createOscillator();
+      beep.type = 'square';
+      beep.frequency.value = 1046.502;
+      beep.connect(audioContext.destination);
+      beep.start();
+      beep.stop(audioContext.currentTime + 0.2);
+    }
+
     function checkNoise() {
       analyser.getByteTimeDomainData(dataArray);
-      // 音量（振幅の平均値）を計算
       let sum = 0;
       for (let i = 0; i < dataArray.length; i++) {
         sum += Math.abs(dataArray[i] - 128);
       }
       const volume = sum / dataArray.length;
       document.getElementById('volumeDisplay').textContent = '音量: ' + volume.toFixed(2);
+
+      // 最大値を更新
+      if (volume > maxVolume) {
+        maxVolume = volume;
+        document.getElementById('maxVolumeDisplay').textContent = '最大音量: ' + maxVolume.toFixed(2);
+      }
 
       // --- 波形グラフの描画 ---
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -102,14 +155,10 @@
       ctx.lineWidth = 2;
       ctx.stroke();
 
-      // --- 警告音 ---
+      // --- 警告音とメッセージ（連続で可） ---
       if (volume > 20) { // しきい値は環境に合わせて調整
-        const beep = audioContext.createOscillator();
-        beep.type = 'square';
-        beep.frequency.value = 1046.502;
-        beep.connect(audioContext.destination);
-        beep.start();
-        beep.stop(audioContext.currentTime + 0.2);
+        playWarningSound();
+        showAlertMessage('警告：騒音レベルが高いです！');
       }
 
       requestAnimationFrame(checkNoise);
