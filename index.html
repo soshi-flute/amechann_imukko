@@ -156,7 +156,7 @@
       ctx.stroke();
 
       // --- 警告音とメッセージ（連続で可） ---
-      if (volume > 20) { // しきい値は環境に合わせて調整
+      if (volume > 5) { // しきい値は環境に合わせて調整
         playWarningSound();
         showAlertMessage('警告：騒音レベルが高いです！');
       }
