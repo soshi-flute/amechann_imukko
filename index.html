@@ -2,70 +2,15 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>全画面波形＆デシベル計測</title>
+  <title>より正確なWebデシベルメーター</title>
   <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      height: 100%;
-      width: 100%;
-      overflow: hidden;
-      background: #fafafa;
-    }
-    #waveCanvas {
-      display: block;
-      position: fixed;
-      top: 0; left: 0;
-      width: 100vw;
-      height: 100vh;
-      background: #fafafa;
-    }
-    #ui {
-      position: absolute;
-      top: 20px;
-      left: 20px;
-      z-index: 10;
-      background: rgba(255,255,255,0.9);
-      padding: 15px 25px;
-      border-radius: 10px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-      font-family: Arial, sans-serif;
-    }
-    #startBtn {
-      font-size: 1.1em;
-      padding: 8px 20px;
-      margin-right: 15px;
-      cursor: pointer;
-      background: #0077cc;
-      color: white;
-      border: none;
-      border-radius: 5px;
-    }
-    #volumeInfo {
-      font-size: 1.2em;
-      color: #333;
-    }
-    #alertMessage {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      font-size: 2.5em;
-      color: #fff;
-      background: rgba(220, 0, 0, 0.9);
-      padding: 30px 50px;
-      border-radius: 20px;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
-      z-index: 100;
-      text-align: center;
-      display: none;
-      pointer-events: none;
-      user-select: none;
-    }
-    .dB-value {
-      color: #c00;
-      font-weight: bold;
-    }
+    html, body { margin:0; padding:0; height:100%; width:100%; background:#fafafa; }
+    #waveCanvas { display:block; position:fixed; top:0; left:0; width:100vw; height:100vh; background:#fafafa; }
+    #ui { position:absolute; top:20px; left:20px; z-index:10; background:rgba(255,255,255,0.9); padding:15px 25px; border-radius:10px; box-shadow:0 4px 12px rgba(0,0,0,0.15); font-family:Arial,sans-serif; }
+    #startBtn { font-size:1.1em; padding:8px 20px; margin-right:15px; cursor:pointer; background:#0077cc; color:white; border:none; border-radius:5px; }
+    #volumeInfo { font-size:1.2em; color:#333; }
+    #alertMessage { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); font-size:2.5em; color:#fff; background:rgba(220,0,0,0.9); padding:30px 50px; border-radius:20px; box-shadow:0 8px 32px rgba(0,0,0,0.3); z-index:100; text-align:center; display:none; pointer-events:none; user-select:none; }
+    .dB-value { color:#c00; font-weight:bold; }
   </style>
 </head>
 <body>
@@ -75,6 +20,10 @@
       現在: <span id="currentDB" class="dB-value">0 dB</span>
       最大: <span id="maxDB" class="dB-value">0 dB</span>
     </span>
+    <div style="font-size:0.9em;color:#555;margin-top:5px;">
+      キャリブレーション: <input type="number" id="calibration" value="0" style="width:60px;"> dB
+      <span style="margin-left:10px;">(基準音で調整)</span>
+    </div>
   </div>
   <div id="alertMessage"></div>
   <canvas id="waveCanvas"></canvas>
@@ -86,7 +35,11 @@
     let maxDB = -Infinity;
     let alertTimeout = null;
 
-    // 画面サイズ調整
+    // キャリブレーション値（dB単位で補正。基準音で合わせてください）
+    function getCalibrationOffset() {
+      return parseFloat(document.getElementById('calibration').value) || 0;
+    }
+
     function resizeCanvas() {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
@@ -99,10 +52,28 @@
         .then(stream => {
           audioContext = new (window.AudioContext || window.webkitAudioContext)();
           const mic = audioContext.createMediaStreamSource(stream);
+
+          // A特性フィルタ（簡易実装: BiquadFilterを組み合わせて近似）
+          // 本格的なA特性はIIRFilterNode等で実装可
+          const lowShelf = audioContext.createBiquadFilter();
+          lowShelf.type = "lowshelf";
+          lowShelf.frequency.value = 1000;
+          lowShelf.gain.value = -16;
+
+          const peaking = audioContext.createBiquadFilter();
+          peaking.type = "peaking";
+          peaking.frequency.value = 3000;
+          peaking.Q.value = 1;
+          peaking.gain.value = 6;
+
+          mic.connect(lowShelf);
+          lowShelf.connect(peaking);
+
           analyser = audioContext.createAnalyser();
           analyser.fftSize = 2048;
           dataArray = new Float32Array(analyser.fftSize);
-          mic.connect(analyser);
+          peaking.connect(analyser);
+
           checkNoise();
         })
         .catch(e => {
@@ -124,19 +95,23 @@
       if (audioContext.state === 'suspended') audioContext.resume();
       const osc = audioContext.createOscillator();
       osc.type = 'square';
-      osc.frequency.value = 1046.502;
+      osc.frequency.value = 1200;
       osc.connect(audioContext.destination);
       osc.start();
       osc.stop(audioContext.currentTime + 0.2);
     }
 
+    // A特性フィルタ後のRMSからdB計算
     function calculateDB(buffer) {
       let sum = 0;
       for (let i = 0; i < buffer.length; i++) {
         sum += buffer[i] * buffer[i];
       }
       const rms = Math.sqrt(sum / buffer.length);
-      return Math.max(20 * Math.log10(rms / 0.00002), -Infinity);
+      // 0dB基準 = 20μPa（騒音計の国際基準）
+      let dB = 20 * Math.log10(rms / 0.00002);
+      dB += getCalibrationOffset();
+      return Math.max(dB, -Infinity);
     }
 
     function drawWaveform() {
@@ -155,7 +130,7 @@
     function checkNoise() {
       analyser.getFloatTimeDomainData(dataArray);
       const currentDB = calculateDB(dataArray);
-      
+
       // 表示更新
       document.getElementById('currentDB').textContent = `${currentDB.toFixed(1)} dB`;
       if (currentDB > maxDB) {
