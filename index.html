@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>全画面波形グラフ騒音警告（最大値表示付き）</title>
+  <title>全画面波形＆デシベル計測</title>
   <style>
     html, body {
       margin: 0;
@@ -25,16 +25,25 @@
       top: 20px;
       left: 20px;
       z-index: 10;
-      background: rgba(255,255,255,0.8);
-      padding: 10px 20px;
-      border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-      font-size: 1.2em;
+      background: rgba(255,255,255,0.9);
+      padding: 15px 25px;
+      border-radius: 10px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      font-family: Arial, sans-serif;
     }
     #startBtn {
-      font-size: 1em;
-      padding: 6px 16px;
-      margin-right: 10px;
+      font-size: 1.1em;
+      padding: 8px 20px;
+      margin-right: 15px;
+      cursor: pointer;
+      background: #0077cc;
+      color: white;
+      border: none;
+      border-radius: 5px;
+    }
+    #volumeInfo {
+      font-size: 1.2em;
+      color: #333;
     }
     #alertMessage {
       position: absolute;
@@ -43,18 +52,17 @@
       transform: translate(-50%, -50%);
       font-size: 2.5em;
       color: #fff;
-      background: rgba(220, 0, 0, 0.85);
+      background: rgba(220, 0, 0, 0.9);
       padding: 30px 50px;
       border-radius: 20px;
-      box-shadow: 0 4px 24px rgba(0,0,0,0.2);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
       z-index: 100;
       text-align: center;
       display: none;
       pointer-events: none;
       user-select: none;
     }
-    #maxVolumeDisplay {
-      margin-left: 25px;
+    .dB-value {
       color: #c00;
       font-weight: bold;
     }
@@ -62,9 +70,11 @@
 </head>
 <body>
   <div id="ui">
-    <button id="startBtn" onclick="start()">スタート</button>
-    <span id="volumeDisplay">音量: 0</span>
-    <span id="maxVolumeDisplay">最大音量: 0</span>
+    <button id="startBtn" onclick="start()">計測開始</button>
+    <span id="volumeInfo">
+      現在: <span id="currentDB" class="dB-value">0 dB</span>
+      最大: <span id="maxDB" class="dB-value">0 dB</span>
+    </span>
   </div>
   <div id="alertMessage"></div>
   <canvas id="waveCanvas"></canvas>
@@ -73,10 +83,10 @@
     let analyser, dataArray;
     const canvas = document.getElementById('waveCanvas');
     const ctx = canvas.getContext('2d');
-    let alertTimeout = null; // 10秒表示用タイマー
-    let maxVolume = 0; // 最大音量を記録
+    let maxDB = -Infinity;
+    let alertTimeout = null;
 
-    // 画面サイズに合わせてcanvasをリサイズ
+    // 画面サイズ調整
     function resizeCanvas() {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
@@ -91,74 +101,75 @@
           const mic = audioContext.createMediaStreamSource(stream);
           analyser = audioContext.createAnalyser();
           analyser.fftSize = 2048;
-          dataArray = new Uint8Array(analyser.fftSize);
+          dataArray = new Float32Array(analyser.fftSize);
           mic.connect(analyser);
-
           checkNoise();
         })
         .catch(e => {
-          alert('マイクの利用が許可されませんでした');
+          alert('マイクアクセスが拒否されました\n設定を確認してください');
         });
     }
 
-    function showAlertMessage(msg) {
+    function showAlert(message) {
       const alertDiv = document.getElementById('alertMessage');
-      alertDiv.textContent = msg;
+      alertDiv.textContent = message;
       alertDiv.style.display = 'block';
       if (alertTimeout) clearTimeout(alertTimeout);
       alertTimeout = setTimeout(() => {
         alertDiv.style.display = 'none';
-      }, 10000); // 10秒後に消す
+      }, 10000);
     }
 
-    function playWarningSound() {
-      if (audioContext.state === 'suspended') {
-        audioContext.resume();
-      }
-      const beep = audioContext.createOscillator();
-      beep.type = 'square';
-      beep.frequency.value = 1046.502;
-      beep.connect(audioContext.destination);
-      beep.start();
-      beep.stop(audioContext.currentTime + 0.2);
+    function playWarning() {
+      if (audioContext.state === 'suspended') audioContext.resume();
+      const osc = audioContext.createOscillator();
+      osc.type = 'square';
+      osc.frequency.value = 1046.502;
+      osc.connect(audioContext.destination);
+      osc.start();
+      osc.stop(audioContext.currentTime + 0.2);
     }
 
-    function checkNoise() {
-      analyser.getByteTimeDomainData(dataArray);
+    function calculateDB(buffer) {
       let sum = 0;
-      for (let i = 0; i < dataArray.length; i++) {
-        sum += Math.abs(dataArray[i] - 128);
+      for (let i = 0; i < buffer.length; i++) {
+        sum += buffer[i] * buffer[i];
       }
-      const volume = sum / dataArray.length;
-      document.getElementById('volumeDisplay').textContent = '音量: ' + volume.toFixed(2);
+      const rms = Math.sqrt(sum / buffer.length);
+      return Math.max(20 * Math.log10(rms / 0.00002), -Infinity);
+    }
 
-      // 最大値を更新
-      if (volume > maxVolume) {
-        maxVolume = volume;
-        document.getElementById('maxVolumeDisplay').textContent = '最大音量: ' + maxVolume.toFixed(2);
-      }
-
-      // --- 波形グラフの描画 ---
+    function drawWaveform() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.beginPath();
       for (let x = 0; x < canvas.width; x++) {
-        const dataIndex = Math.floor(x * dataArray.length / canvas.width);
-        const v = dataArray[dataIndex] / 255;
-        const y = v * canvas.height;
-        if (x === 0) {
-          ctx.moveTo(x, y);
-        } else {
-          ctx.lineTo(x, y);
-        }
+        const idx = Math.floor(x * dataArray.length / canvas.width);
+        const y = (0.5 - dataArray[idx] / 2) * canvas.height;
+        x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
       }
       ctx.strokeStyle = '#0077cc';
       ctx.lineWidth = 2;
       ctx.stroke();
+    }
 
-      // --- 警告音とメッセージ（連続で可） ---
-      if (volume > 10) { // しきい値は環境に合わせて調整
-        playWarningSound();
-        showAlertMessage('警告：騒音レベルが高いです！');
+    function checkNoise() {
+      analyser.getFloatTimeDomainData(dataArray);
+      const currentDB = calculateDB(dataArray);
+      
+      // 表示更新
+      document.getElementById('currentDB').textContent = `${currentDB.toFixed(1)} dB`;
+      if (currentDB > maxDB) {
+        maxDB = currentDB;
+        document.getElementById('maxDB').textContent = `${maxDB.toFixed(1)} dB`;
+      }
+
+      // 波形描画
+      drawWaveform();
+
+      // 警告処理（例: 85dB以上で警告）
+      if (currentDB > 85) {
+        playWarning();
+        showAlert('警告：危険な騒音レベルです！');
       }
 
       requestAnimationFrame(checkNoise);
