@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>大岡中出版図書委員会専用サイト</title>
+  <title>大岡中出版図書委員会専用騒音計測＆警告サイト（カスタマイズ可）</title>
   <style>
     html, body { margin:0; padding:0; height:100%; width:100%; background:#fafafa; }
     #waveCanvas { display:block; position:fixed; top:0; left:0; width:100vw; height:100vh; background:#fafafa; }
@@ -20,6 +20,10 @@
       現在: <span id="currentDB" class="dB-value">0 dB</span>
       最大: <span id="maxDB" class="dB-value">0 dB</span>
     </span>
+    <!-- しきい値UIをキャリブレーションより上に配置 -->
+    <div style="font-size:0.9em;color:#555;margin-top:5px;">
+      警告しきい値: <input type="number" id="threshold" value="85" style="width:60px;"> dB
+    </div>
     <div style="font-size:0.9em;color:#555;margin-top:5px;">
       キャリブレーション: <input type="number" id="calibration" value="0" style="width:60px;"> dB
       <span style="margin-left:10px;">(基準音で調整)</span>
@@ -34,10 +38,13 @@
     const ctx = canvas.getContext('2d');
     let maxDB = -Infinity;
     let alertTimeout = null;
+    let warningInterval = null;
 
-    // キャリブレーション値（dB単位で補正。基準音で合わせてください）
     function getCalibrationOffset() {
       return parseFloat(document.getElementById('calibration').value) || 0;
+    }
+    function getThreshold() {
+      return parseFloat(document.getElementById('threshold').value) || 85;
     }
 
     function resizeCanvas() {
@@ -54,7 +61,6 @@
           const mic = audioContext.createMediaStreamSource(stream);
 
           // A特性フィルタ（簡易実装: BiquadFilterを組み合わせて近似）
-          // 本格的なA特性はIIRFilterNode等で実装可
           const lowShelf = audioContext.createBiquadFilter();
           lowShelf.type = "lowshelf";
           lowShelf.frequency.value = 1000;
@@ -88,7 +94,7 @@
       if (alertTimeout) clearTimeout(alertTimeout);
       alertTimeout = setTimeout(() => {
         alertDiv.style.display = 'none';
-      }, 10000);
+      }, 3000);
     }
 
     function playWarning() {
@@ -98,17 +104,15 @@
       osc.frequency.value = 1200;
       osc.connect(audioContext.destination);
       osc.start();
-      osc.stop(audioContext.currentTime + 0.2);
+      osc.stop(audioContext.currentTime + 0.2); // 0.2秒だけ鳴る
     }
 
-    // A特性フィルタ後のRMSからdB計算
     function calculateDB(buffer) {
       let sum = 0;
       for (let i = 0; i < buffer.length; i++) {
         sum += buffer[i] * buffer[i];
       }
       const rms = Math.sqrt(sum / buffer.length);
-      // 0dB基準 = 20μPa（騒音計の国際基準）
       let dB = 20 * Math.log10(rms / 0.00002);
       dB += getCalibrationOffset();
       return Math.max(dB, -Infinity);
@@ -127,24 +131,38 @@
       ctx.stroke();
     }
 
+    function startWarningLoop() {
+      if (warningInterval) return;
+      playWarning();
+      warningInterval = setInterval(playWarning, 500); // 0.5秒ごとに警告音
+    }
+
+    function stopWarningLoop() {
+      if (warningInterval) {
+        clearInterval(warningInterval);
+        warningInterval = null;
+      }
+    }
+
     function checkNoise() {
       analyser.getFloatTimeDomainData(dataArray);
       const currentDB = calculateDB(dataArray);
+      const threshold = getThreshold();
 
-      // 表示更新
       document.getElementById('currentDB').textContent = `${currentDB.toFixed(1)} dB`;
       if (currentDB > maxDB) {
         maxDB = currentDB;
         document.getElementById('maxDB').textContent = `${maxDB.toFixed(1)} dB`;
       }
 
-      // 波形描画
       drawWaveform();
 
-      // 警告処理（例: 85dB以上で警告）
-      if (currentDB > 85) {
-        playWarning();
-        showAlert('警告：危険な騒音レベルです！');
+      // しきい値を超えている間は0.5秒ごとに警告音
+      if (currentDB > threshold) {
+        showAlert(`警告：${threshold}dBを超えました！`);
+        startWarningLoop();
+      } else {
+        stopWarningLoop();
       }
 
       requestAnimationFrame(checkNoise);
