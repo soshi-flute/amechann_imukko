@@ -142,7 +142,7 @@
       drawWaveform();
 
       // 警告処理（例: 85dB以上で警告）
-      if (currentDB > 85) {
+      if (currentDB > 50) {
         playWarning();
         showAlert('警告：危険な騒音レベルです！');
       }
