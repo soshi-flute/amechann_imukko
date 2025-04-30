@@ -159,7 +159,7 @@
 
       // しきい値を超えている間は0.5秒ごとに警告音
       if (currentDB > threshold) {
-        showAlert(`警告：${threshold}dBを超えました！`);
+        showAlert(`警告：騒音レベルが高いです！`);
         startWarningLoop();
       } else {
         stopWarningLoop();
