@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>4/30版/大岡中図書委員会専用サイト(騒音計測及び警告)</title>
+  <title>5/01版/大岡中図書委員会専用サイト(騒音計測及び警告)</title>
   <style>
     html, body { margin:0; padding:0; height:100%; width:100%; background:#fafafa; }
     #waveCanvas { display:block; position:fixed; top:0; left:0; width:100vw; height:100vh; background:#fafafa; }
@@ -101,10 +101,10 @@
       if (audioContext.state === 'suspended') audioContext.resume();
       const osc = audioContext.createOscillator();
       osc.type = 'square';
-      osc.frequency.value = 1200;
+      osc.frequency.value = 1046.502;
       osc.connect(audioContext.destination);
       osc.start();
-      osc.stop(audioContext.currentTime + 0.2); // 0.2秒だけ鳴る
+      osc.stop(audioContext.currentTime + 0.25); // 0.25秒だけ鳴る
     }
 
     function calculateDB(buffer) {
