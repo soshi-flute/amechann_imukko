@@ -2,35 +2,126 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>騒音くん</title>
+  <title>新・騒音くん</title>
   <style>
-    html, body { margin:0; padding:0; height:100%; width:100%; background:#fafafa; }
-    #waveCanvas { display:block; position:fixed; top:0; left:0; width:100vw; height:100vh; background:#fafafa; }
-    #ui { position:absolute; top:20px; left:20px; z-index:10; background:rgba(255,255,255,0.9); padding:15px 25px; border-radius:10px; box-shadow:0 4px 12px rgba(0,0,0,0.15); font-family:Arial,sans-serif; }
-    #startBtn { font-size:1.1em; padding:8px 20px; margin-right:15px; cursor:pointer; background:#0077cc; color:white; border:none; border-radius:5px; }
-    #volumeInfo { font-size:1.2em; color:#333; }
-    #alertMessage { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); font-size:2.5em; color:#fff; background:rgba(220,0,0,0.9); padding:30px 50px; border-radius:20px; box-shadow:0 8px 32px rgba(0,0,0,0.3); z-index:100; text-align:center; display:none; pointer-events:none; user-select:none; }
-    .dB-value { color:#c00; font-weight:bold; }
+    html, body {
+      margin: 0; padding: 0; height: 100%; width: 100%;
+      background: linear-gradient(135deg, #e0e7ff 0%, #f0fdfa 100%);
+      font-family: 'Segoe UI', 'Hiragino Sans', Arial, sans-serif;
+    }
+    #waveCanvas {
+      display: block;
+      position: fixed;
+      top: 0; left: 0; width: 100vw; height: 100vh;
+      background: transparent;
+      z-index: 1;
+    }
+    #ui {
+      position: absolute; top: 40px; left: 50%; transform: translateX(-50%);
+      z-index: 10;
+      background: rgba(255,255,255,0.7);
+      box-shadow: 0 8px 32px rgba(31,38,135,0.15);
+      border-radius: 24px;
+      padding: 32px 40px 28px 40px;
+      min-width: 340px;
+      backdrop-filter: blur(8px);
+      border: 1.5px solid rgba(120,120,180,0.13);
+      transition: box-shadow 0.3s;
+    }
+    #ui:hover {
+      box-shadow: 0 12px 40px rgba(31,38,135,0.18);
+    }
+    #startBtn {
+      font-size: 1.15em;
+      padding: 10px 32px;
+      margin-bottom: 22px;
+      border-radius: 20px;
+      border: none;
+      background: linear-gradient(90deg, #6366f1 0%, #06b6d4 100%);
+      color: #fff;
+      font-weight: bold;
+      letter-spacing: 0.08em;
+      box-shadow: 0 2px 8px rgba(99,102,241,0.13);
+      cursor: pointer;
+      transition: background 0.2s, box-shadow 0.2s;
+    }
+    #startBtn:hover {
+      background: linear-gradient(90deg, #06b6d4 0%, #6366f1 100%);
+      box-shadow: 0 4px 18px rgba(99,102,241,0.22);
+    }
+    .info-row {
+      display: flex; align-items: center; gap: 16px;
+      margin-bottom: 10px;
+    }
+    .label {
+      color: #6366f1;
+      font-weight: bold;
+      font-size: 1.05em;
+      margin-right: 8px;
+      letter-spacing: 0.04em;
+    }
+    .dB-value {
+      color: #06b6d4;
+      font-size: 1.3em;
+      font-weight: bold;
+      margin-right: 8px;
+      text-shadow: 0 1px 8px #cffafe60;
+    }
+    .input-group {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 8px;
+    }
+    input[type="number"] {
+      width: 70px; padding: 6px 8px;
+      border-radius: 8px; border: 1.2px solid #b3b3e6;
+      font-size: 1em; background: #f8fafc;
+      outline: none; transition: border 0.2s;
+    }
+    input[type="number"]:focus {
+      border: 1.5px solid #06b6d4;
+      background: #e0f2fe;
+    }
+    #alertMessage {
+      position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 2.2em; color: #fff;
+      background: linear-gradient(90deg, #f43f5e 40%, #fbbf24 100%);
+      padding: 26px 48px; border-radius: 22px;
+      box-shadow: 0 8px 32px rgba(220,0,0,0.22);
+      z-index: 100; text-align: center;
+      display: none; pointer-events: none; user-select: none;
+      font-weight: bold; letter-spacing: 0.08em;
+      text-shadow: 0 2px 12px #0006;
+    }
+    @media (max-width: 600px) {
+      #ui {
+        min-width: unset; width: 90vw; padding: 18px 6vw 16px 6vw;
+      }
+      #alertMessage { font-size: 1.3em; padding: 10vw 4vw; }
+    }
   </style>
 </head>
 <body>
+  <canvas id="waveCanvas"></canvas>
   <div id="ui">
     <button id="startBtn" onclick="start()">計測開始</button>
-    <span id="volumeInfo">
-      現在: <span id="currentDB" class="dB-value">0 dB</span>
-      最大: <span id="maxDB" class="dB-value">0 dB</span>
-    </span>
-    <!-- しきい値UIをキャリブレーションより上に配置 -->
-    <div style="font-size:0.9em;color:#555;margin-top:5px;">
-      警告しきい値: <input type="number" id="threshold" value="85" style="width:60px;"> dB
+    <div class="info-row">
+      <span class="label">現在</span>
+      <span id="currentDB" class="dB-value">0 dB</span>
+      <span class="label">最大</span>
+      <span id="maxDB" class="dB-value">0 dB</span>
     </div>
-    <div style="font-size:0.9em;color:#555;margin-top:5px;">
-      キャリブレーション: <input type="number" id="calibration" value="0" style="width:60px;"> dB
-      <span style="margin-left:10px;">(基準音で調整)</span>
+    <div class="input-group">
+      <span class="label">警告しきい値</span>
+      <input type="number" id="threshold" value="85" min="0" max="130" step="1">dB
+    </div>
+    <div class="input-group">
+      <span class="label">キャリブレーション</span>
+      <input type="number" id="calibration" value="0">dB
+      <span style="color:#888;font-size:0.95em;">(基準音で調整)</span>
     </div>
   </div>
   <div id="alertMessage"></div>
-  <canvas id="waveCanvas"></canvas>
   <script>
     let audioContext;
     let analyser, dataArray;
@@ -104,7 +195,7 @@
       osc.frequency.value = 1046.502;
       osc.connect(audioContext.destination);
       osc.start();
-      osc.stop(audioContext.currentTime + 0.25); // 0.25秒だけ鳴る
+      osc.stop(audioContext.currentTime + 0.2); // 0.2秒だけ鳴る
     }
 
     function calculateDB(buffer) {
@@ -120,16 +211,33 @@
 
     function drawWaveform() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // グラデーション背景
+      const grad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+      grad.addColorStop(0, "#e0e7ff");
+      grad.addColorStop(1, "#f0fdfa");
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // 波形
+      ctx.save();
+      ctx.globalAlpha = 0.85;
       ctx.beginPath();
       for (let x = 0; x < canvas.width; x++) {
         const idx = Math.floor(x * dataArray.length / canvas.width);
-        const y = (0.5 - dataArray[idx] / 2) * canvas.height;
+        const y = (0.5 - dataArray[idx] / 2) * canvas.height * 0.8 + canvas.height * 0.5;
         x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
       }
-      ctx.strokeStyle = '#0077cc';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = "url(#waveGrad)";
+      ctx.shadowColor = "#06b6d4";
+      ctx.shadowBlur = 8;
+      ctx.lineWidth = 3;
       ctx.stroke();
+      ctx.restore();
     }
+
+    // SVGグラデーションをCanvasで使うための工夫
+    // ただし、Canvas2DのAPIでは直接SVGグラデは使えないので、strokeStyleに色を指定
+    // よりリッチな波形にしたい場合はCanvasのグラデーションやalphaを工夫してください
 
     function startWarningLoop() {
       if (warningInterval) return;
@@ -159,7 +267,7 @@
 
       // しきい値を超えている間は0.5秒ごとに警告音
       if (currentDB > threshold) {
-        showAlert(`警告：騒音レベルが高いです！`);
+        showAlert(`警告：騒音レベルが高いです！　静かにしましょう！`);
         startWarningLoop();
       } else {
         stopWarningLoop();
